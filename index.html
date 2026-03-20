@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BETIQ PRO ⚡</title>
+  <meta name="description" content="AI-powered football betting picks with real fixtures"/>
+  <!-- React via CDN — no build needed -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@600;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#080c18;font-family:'Rajdhani',sans-serif;color:#dde8ff}
+    ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#00b4d8;border-radius:3px}
+    .card{background:linear-gradient(135deg,rgba(255,255,255,.028),rgba(0,180,216,.045));border:1px solid rgba(0,180,216,.13);border-radius:13px;transition:border-color .25s,transform .25s,box-shadow .25s}
+    .card:hover{border-color:rgba(0,180,216,.35);transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,180,216,.09)}
+    .pcard{animation:up .4s ease both}
+    @keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
+    .btn{background:linear-gradient(90deg,#0096c7,#00b4d8,#0096c7);background-size:200% auto;color:#fff;border:none;border-radius:9px;padding:13px 32px;font-family:'Orbitron',monospace;font-size:12px;font-weight:900;letter-spacing:2px;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .btn:hover:not(:disabled){animation:shimmer 1.5s linear infinite;box-shadow:0 0 32px rgba(0,180,216,.5);transform:scale(1.03)}
+    .btn:disabled{opacity:.35;cursor:not-allowed}
+    .btn-sm{background:transparent;border:1px solid rgba(0,180,216,.25);color:#00b4d8;border-radius:8px;padding:9px 16px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:13px;transition:all .2s}
+    .btn-sm:hover{background:rgba(0,180,216,.07)}
+    select,input[type=date]{background:rgba(255,255,255,.038);border:1px solid rgba(0,180,216,.2);color:#dde8ff;border-radius:9px;padding:11px 14px;font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:600;outline:none;width:100%;transition:border-color .2s}
+    select:focus,input:focus{border-color:rgba(0,180,216,.55)}
+    select option{background:#0c1624}
+    .tag{font-size:9px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:1.2px;text-transform:uppercase;white-space:nowrap}
+    .bar-bg{background:rgba(255,255,255,.055);border-radius:3px;height:5px;overflow:hidden}
+    .bar-fill{height:100%;border-radius:3px;transition:width 1.2s cubic-bezier(.4,0,.2,1)}
+    .sort-btn{background:transparent;border:1px solid rgba(0,180,216,.18);color:rgba(180,210,255,.4);border-radius:6px;padding:7px 0;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;cursor:pointer;letter-spacing:1px;transition:all .2s;flex:1}
+    .sort-btn.on{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.48);color:#00b4d8}
+    #root{min-height:100vh}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    const ALL_LEAGUES = [
+      "Premier League","La Liga","Serie A","Bundesliga","Ligue 1",
+      "Eredivisie","Primeira Liga","Super Lig","Scottish Premiership","Belgian Pro League",
+      "Champions League","Europa League","Conference League",
+      "MLS","Liga MX","Brazilian Serie A","Argentine Primera",
+      "Saudi Pro League","J1 League","K League",
+      "Egyptian Premier League","South African PSL",
+      "FIFA World Cup Qualifiers","UEFA Nations League","Copa America","AFCON",
+    ];
+
+    const GROUPS = [
+      { label:"🌍 All World — Best Odds", value:"ALL",  leagues:ALL_LEAGUES },
+      { label:"⭐ Europe Top 5",          value:"EU5",  leagues:["Premier League","La Liga","Serie A","Bundesliga","Ligue 1"] },
+      { label:"🏆 European Cups",         value:"CUPS", leagues:["Champions League","Europa League","Conference League"] },
+      { label:"🌐 Europe Full",           value:"EUX",  leagues:["Premier League","La Liga","Serie A","Bundesliga","Ligue 1","Eredivisie","Primeira Liga","Super Lig","Scottish Premiership","Belgian Pro League"] },
+      { label:"🌎 Americas",              value:"AME",  leagues:["MLS","Liga MX","Brazilian Serie A","Argentine Primera"] },
+      { label:"🌏 Asia & Middle East",    value:"ASIA", leagues:["Saudi Pro League","J1 League","K League"] },
+      { label:"🌍 Africa & Intl",         value:"AFR",  leagues:["Egyptian Premier League","South African PSL","AFCON","FIFA World Cup Qualifiers","UEFA Nations League"] },
+      ...ALL_LEAGUES.map(l => ({ label:l, value:l, leagues:[l] })),
+    ];
+
+    const FLAG = {
+      "Premier League":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","La Liga":"🇪🇸","Serie A":"🇮🇹","Bundesliga":"🇩🇪","Ligue 1":"🇫🇷",
+      "Champions League":"🏆","Europa League":"🥈","Conference League":"🥉",
+      "Eredivisie":"🇳🇱","Primeira Liga":"🇵🇹","Super Lig":"🇹🇷","Scottish Premiership":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Belgian Pro League":"🇧🇪",
+      "MLS":"🇺🇸","Liga MX":"🇲🇽","Brazilian Serie A":"🇧🇷","Argentine Primera":"🇦🇷",
+      "Saudi Pro League":"🇸🇦","J1 League":"🇯🇵","K League":"🇰🇷",
+      "Egyptian Premier League":"🇪🇬","South African PSL":"🇿🇦",
+      "FIFA World Cup Qualifiers":"🌐","UEFA Nations League":"🇪🇺","Copa America":"🌎","AFCON":"🌍",
+    };
+
+    const getRisk = c => c>=75?{label:"LOW RISK",color:"#00e676"}:c>=65?{label:"MED RISK",color:"#ffd600"}:{label:"HIGH RISK",color:"#ff6d00"};
+
+    function FormBar({form}) {
+      if (!form) return null;
+      return (
+        <span style={{display:"inline-flex",gap:2}}>
+          {form.split("").map((c,i) => (
+            <span key={i} style={{
+              display:"inline-flex",alignItems:"center",justifyContent:"center",
+              width:15,height:15,borderRadius:3,fontSize:8,fontWeight:900,fontFamily:"monospace",
+              background:c==="W"?"rgba(0,230,118,.18)":c==="D"?"rgba(255,214,0,.18)":"rgba(255,80,80,.18)",
+              color:c==="W"?"#00e676":c==="D"?"#ffd600":"#ff6060",
+            }}>{c}</span>
+          ))}
+        </span>
+      );
+    }
+
+    function App() {
+      const today = new Date().toISOString().split("T")[0];
+      const [selectedGroup, setSelectedGroup] = useState("EU5");
+      const [date,     setDate]     = useState(today);
+      const [sortBy,   setSortBy]   = useState("odds");
+      const [picks,    setPicks]    = useState([]);
+      const [loading,  setLoading]  = useState(false);
+      const [loadMsg,  setLoadMsg]  = useState("");
+      const [error,    setError]    = useState(null);
+      const [stats,    setStats]    = useState({});
+      const [revealed, setRevealed] = useState(false);
+      const [fixtures, setFixtures] = useState("");
+
+      const group   = GROUPS.find(g => g.value === selectedGroup) || GROUPS[1];
+      const isMulti = group.leagues.length > 1;
+
+      const generate = async () => {
+        setLoading(true); setError(null); setPicks([]); setRevealed(false); setFixtures("");
+        setLoadMsg("🔍 Searching the web for real fixtures...");
+        try {
+          const res = await fetch("/api/picks", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ date, leagues:group.leagues, sortBy }),
+          });
+          const data = await res.json();
+          if (data.error && !data.picks?.length) throw new Error(data.error);
+          setLoadMsg("🤖 Calculating best value bets...");
+          const validated = (data.picks || []).slice(0,10);
+          if (!validated.length) throw new Error("No picks returned. Please try again.");
+          setStats({
+            avgConf:   Math.round(validated.reduce((s,p)=>s+p.conf,0)/validated.length),
+            totalOdds: validated.reduce((s,p)=>s*p.odds,1).toFixed(1),
+            avgOdds:   (validated.reduce((s,p)=>s+p.odds,0)/validated.length).toFixed(2),
+          });
+          setFixtures(data.fixtureText || "");
+          setPicks(validated);
+          setTimeout(() => setRevealed(true), 80);
+        } catch(e) {
+          setError(e.message);
+        } finally {
+          setLoading(false); setLoadMsg("");
+        }
+      };
+
+      const copyPicks = () => navigator.clipboard.writeText(
+        picks.map((p,i)=>`${i+1}. [${p.league}] ${p.home} vs ${p.away} | ${p.tip} @ ${p.odds} | ${p.conf}%\n   ${p.reasoning}`).join("\n\n")
+      );
+
+      const leagueBD = picks.reduce((a,p)=>{a[p.league]=(a[p.league]||0)+1;return a;},{});
+
+      return (
+        <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#080c18 0%,#0c1624 55%,#080c18 100%)"}}>
+
+          {/* HEADER */}
+          <div style={{borderBottom:"1px solid rgba(0,180,216,.09)",background:"linear-gradient(180deg,rgba(0,180,216,.055) 0%,transparent 100%)"}}>
+            <div style={{maxWidth:960,margin:"0 auto",padding:"20px 16px 0"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:18}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:5,height:38,background:"linear-gradient(180deg,#00b4d8,#0369a1)",borderRadius:3}}/>
+                  <div>
+                    <h1 style={{fontFamily:"'Orbitron',monospace",fontSize:26,fontWeight:900,color:"#fff",letterSpacing:4,lineHeight:1}}>
+                      BETIQ <span style={{color:"#00b4d8"}}>PRO</span>
+                      <span style={{marginLeft:10,verticalAlign:"middle",fontSize:9,fontWeight:700,padding:"3px 9px",borderRadius:20,background:"rgba(0,230,118,.1)",border:"1px solid rgba(0,230,118,.3)",color:"#00e676",letterSpacing:2}}>🌐 LIVE DATA</span>
+                    </h1>
+                    <p style={{fontSize:9,color:"rgba(180,210,255,.38)",letterSpacing:2,marginTop:4}}>REAL FIXTURES · WEB SEARCH · AI ANALYSIS · 10 BEST PICKS</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div style={{background:"rgba(0,0,0,.18)",borderRadius:"12px 12px 0 0",padding:"14px 16px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
+                <div style={{flex:3,minWidth:200}}>
+                  <div style={{fontSize:9,color:"#00b4d8",letterSpacing:2,marginBottom:6,fontFamily:"monospace",fontWeight:700}}>COMPETITION / REGION</div>
+                  <select value={selectedGroup} onChange={e=>setSelectedGroup(e.target.value)}>
+                    {GROUPS.slice(0,8).map(g=><option key={g.value} value={g.value}>{g.label}</option>)}
+                    <optgroup label="── Individual Leagues ──">
+                      {ALL_LEAGUES.map(l=><option key={l} value={l}>{FLAG[l]||"🏟️"} {l}</option>)}
+                    </optgroup>
+                  </select>
+                </div>
+                <div style={{flex:1,minWidth:145}}>
+                  <div style={{fontSize:9,color:"#00b4d8",letterSpacing:2,marginBottom:6,fontFamily:"monospace",fontWeight:700}}>DATE</div>
+                  <input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+                </div>
+                <div style={{flex:1,minWidth:120}}>
+                  <div style={{fontSize:9,color:"#00b4d8",letterSpacing:2,marginBottom:6,fontFamily:"monospace",fontWeight:700}}>SORT BY</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button className={`sort-btn${sortBy==="odds"?" on":""}`} onClick={()=>setSortBy("odds")}>ODDS</button>
+                    <button className={`sort-btn${sortBy==="conf"?" on":""}`} onClick={()=>setSortBy("conf")}>CONF</button>
+                  </div>
+                </div>
+                <button className="btn" onClick={generate} disabled={loading}>
+                  {loading?"⟳ SEARCHING...":"⚡ GET REAL PICKS"}
+                </button>
+              </div>
+
+              {isMulti && (
+                <div style={{background:"rgba(0,0,0,.12)",padding:"8px 16px",borderTop:"1px solid rgba(255,255,255,.03)",display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
+                  <span style={{fontSize:9,color:"rgba(180,210,255,.25)",letterSpacing:1,marginRight:4,fontFamily:"monospace"}}>LEAGUES:</span>
+                  {group.leagues.slice(0,12).map(l=>(
+                    <span key={l} style={{fontSize:9,color:"rgba(180,210,255,.4)",background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:4,padding:"1px 6px"}}>{FLAG[l]||"🏟️"} {l}</span>
+                  ))}
+                  {group.leagues.length>12&&<span style={{fontSize:9,color:"rgba(180,210,255,.22)"}}>+{group.leagues.length-12} more</span>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{maxWidth:960,margin:"0 auto",padding:"18px 14px"}}>
+
+            {/* LOADING */}
+            {loading && (
+              <div style={{textAlign:"center",padding:"60px 0"}}>
+                <div style={{width:56,height:56,border:"3px solid rgba(0,230,118,.1)",borderTopColor:"#00e676",borderRadius:"50%",animation:"spin .9s linear infinite",margin:"0 auto 20px"}}/>
+                <div style={{fontFamily:"'Orbitron',monospace",color:"#00e676",letterSpacing:2,fontSize:12,marginBottom:8}}>{loadMsg||"SEARCHING THE WEB..."}</div>
+                <div style={{color:"rgba(180,210,255,.28)",fontSize:12,lineHeight:1.8}}>
+                  Finding real fixtures on {date}<br/>
+                  <span style={{fontSize:10,color:"rgba(0,230,118,.35)"}}>BBC Sport · FlashScore · SofaScore · ESPN</span>
+                </div>
+              </div>
+            )}
+
+            {/* ERROR */}
+            {error && !loading && (
+              <div style={{background:"rgba(255,23,68,.07)",border:"1px solid rgba(255,23,68,.22)",borderRadius:10,padding:"14px 18px",color:"#ff7070",fontSize:13,marginBottom:16,lineHeight:1.7}}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            {/* FIXTURES FOUND */}
+            {fixtures && !loading && picks.length>0 && (
+              <div style={{background:"rgba(0,230,118,.04)",border:"1px solid rgba(0,230,118,.12)",borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+                <div style={{fontSize:9,color:"rgba(0,230,118,.55)",letterSpacing:2,fontFamily:"monospace",marginBottom:8}}>✓ REAL FIXTURES FOUND VIA WEB SEARCH</div>
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {fixtures.split("\n").filter(Boolean).slice(0,8).map((l,i)=>(
+                    <div key={i} style={{fontSize:11,color:"rgba(180,210,255,.5)",fontFamily:"'JetBrains Mono',monospace",borderLeft:"2px solid rgba(0,230,118,.2)",paddingLeft:8}}>{l}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* STATS */}
+            {picks.length>0 && !loading && (
+              <div style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
+                {[
+                  {label:"AVG CONFIDENCE",val:`${stats.avgConf}%`,color:"#00e676"},
+                  {label:"AVG ODDS",      val:stats.avgOdds,       color:"#00b4d8"},
+                  {label:"ACCA ODDS",     val:`${stats.totalOdds}x`,color:"#ffd600"},
+                  {label:"TOTAL PICKS",   val:"10",                color:"rgba(180,210,255,.5)"},
+                ].map(s=>(
+                  <div key={s.label} style={{flex:1,minWidth:95,background:"rgba(0,180,216,.05)",border:"1px solid rgba(0,180,216,.14)",borderRadius:10,padding:"11px 13px",textAlign:"center"}}>
+                    <div style={{fontFamily:"'Orbitron',monospace",fontSize:18,fontWeight:900,color:s.color}}>{s.val}</div>
+                    <div style={{fontSize:8,color:"rgba(180,210,255,.33)",letterSpacing:1,marginTop:2}}>{s.label}</div>
+                  </div>
+                ))}
+                {Object.keys(leagueBD).length>1&&(
+                  <div style={{flex:2,minWidth:140,background:"rgba(180,100,255,.04)",border:"1px solid rgba(180,100,255,.14)",borderRadius:10,padding:"11px 13px"}}>
+                    <div style={{fontSize:8,color:"rgba(180,100,255,.45)",letterSpacing:1,marginBottom:5}}>LEAGUES</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                      {Object.entries(leagueBD).map(([l,n])=>(
+                        <span key={l} style={{fontSize:9,color:"#c084fc",background:"rgba(180,100,255,.07)",border:"1px solid rgba(180,100,255,.16)",borderRadius:4,padding:"1px 6px"}}>{FLAG[l]||"🏟️"} {n}×</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button className="btn-sm" onClick={copyPicks} style={{padding:"11px 16px",alignSelf:"stretch"}}>📋</button>
+              </div>
+            )}
+
+            {/* PICKS */}
+            {picks.length>0 && !loading && (
+              <div style={{display:"grid",gap:10}}>
+                {picks.map((p,i)=>{
+                  const risk=getRisk(p.conf);
+                  const bc=p.conf>=75?"#00e676":p.conf>=65?"#ffd600":"#ff6d00";
+                  const top=i<3;
+                  const flag=FLAG[p.league]||"🏟️";
+                  return (
+                    <div key={p.id} className="card pcard" style={{padding:"15px 17px",animationDelay:`${i*45}ms`,borderColor:top?"rgba(255,214,0,.18)":undefined}}>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:11,alignItems:"center"}}>
+                        <div style={{width:38,height:38,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:top?"rgba(255,214,0,.1)":"rgba(0,180,216,.08)",border:`1px solid ${top?"rgba(255,214,0,.28)":"rgba(0,180,216,.22)"}`}}>
+                          <span style={{fontFamily:"'Orbitron',monospace",fontSize:11,fontWeight:900,color:top?"#ffd600":"#00b4d8"}}>#{i+1}</span>
+                        </div>
+                        <div style={{flex:1,minWidth:165}}>
+                          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
+                            <span style={{fontSize:9,color:"#c084fc",background:"rgba(180,100,255,.08)",border:"1px solid rgba(180,100,255,.2)",borderRadius:20,padding:"2px 8px",fontWeight:800,textTransform:"uppercase",letterSpacing:.5}}>{flag} {p.league}</span>
+                            <span className="tag" style={{background:"rgba(0,180,216,.09)",color:"#00b4d8",border:"1px solid rgba(0,180,216,.22)"}}>{p.tip}</span>
+                            <span className="tag" style={{background:`${risk.color}12`,color:risk.color,border:`1px solid ${risk.color}38`}}>{risk.label}</span>
+                            <span style={{fontSize:9,color:"rgba(0,230,118,.7)",background:"rgba(0,230,118,.07)",border:"1px solid rgba(0,230,118,.2)",borderRadius:4,padding:"2px 6px",fontFamily:"monospace",fontWeight:700}}>🌐 REAL</span>
+                          </div>
+                          <div style={{fontFamily:"'Orbitron',monospace",fontSize:13,fontWeight:700,color:"#fff",lineHeight:1.25}}>
+                            {p.home} <span style={{color:"rgba(180,210,255,.25)",fontWeight:400,fontSize:10}}>vs</span> {p.away}
+                          </div>
+                          {(p.homeForm||p.awayForm)&&(
+                            <div style={{marginTop:5,display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+                              {p.homeForm&&<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:9,color:"rgba(180,210,255,.3)"}}>H</span><FormBar form={p.homeForm}/></span>}
+                              {p.awayForm&&<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:9,color:"rgba(180,210,255,.3)"}}>A</span><FormBar form={p.awayForm}/></span>}
+                            </div>
+                          )}
+                          <div style={{marginTop:4,fontSize:11,color:"rgba(180,210,255,.38)"}}>🔑 {p.factor}</div>
+                        </div>
+                        <div style={{background:top?"rgba(255,214,0,.1)":"rgba(255,214,0,.05)",border:`1px solid ${top?"rgba(255,214,0,.3)":"rgba(255,214,0,.16)"}`,borderRadius:9,padding:"9px 15px",textAlign:"center",flexShrink:0}}>
+                          <div style={{fontSize:9,color:"rgba(255,214,0,.5)",letterSpacing:1,marginBottom:2}}>ODDS</div>
+                          <div style={{fontFamily:"'Orbitron',monospace",fontWeight:900,color:"#ffd600",fontSize:top?21:16}}>{p.odds}</div>
+                        </div>
+                        <div style={{minWidth:96}}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                            <span style={{fontSize:9,color:"rgba(180,210,255,.33)",letterSpacing:1}}>CONF</span>
+                            <span style={{fontFamily:"'Orbitron',monospace",fontSize:13,fontWeight:900,color:bc}}>{p.conf}%</span>
+                          </div>
+                          <div className="bar-bg"><div className="bar-fill" style={{width:revealed?`${p.conf}%`:"0%",background:`linear-gradient(90deg,${bc}55,${bc})`}}/></div>
+                        </div>
+                      </div>
+                      {p.reasoning&&(
+                        <div style={{marginTop:10,paddingTop:9,borderTop:"1px solid rgba(255,255,255,.045)",fontSize:12,color:"rgba(180,210,255,.44)",fontStyle:"italic",lineHeight:1.6}}>
+                          💡 {p.reasoning}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* EMPTY */}
+            {!loading && picks.length===0 && !error && (
+              <div style={{textAlign:"center",padding:"64px 0"}}>
+                <div style={{fontSize:52,marginBottom:16}}>🌐</div>
+                <div style={{fontFamily:"'Orbitron',monospace",fontSize:15,color:"rgba(180,210,255,.3)",letterSpacing:2,marginBottom:10}}>REAL FIXTURES FROM THE WEB</div>
+                <div style={{color:"rgba(180,210,255,.2)",fontSize:13,lineHeight:2}}>
+                  Claude searches live sports sites · finds real scheduled matches<br/>
+                  then AI picks the 10 best value bets from actual games
+                </div>
+              </div>
+            )}
+
+            <div style={{textAlign:"center",marginTop:28,paddingTop:14,borderTop:"1px solid rgba(0,180,216,.06)"}}>
+              <p style={{fontSize:10,color:"rgba(180,210,255,.15)",letterSpacing:1}}>⚠️ FOR ENTERTAINMENT ONLY · GAMBLE RESPONSIBLY · 18+</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
