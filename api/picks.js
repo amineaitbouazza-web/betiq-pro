@@ -4,11 +4,14 @@
 
 // ── Free models on OpenRouter (no credits needed) ─────────────────────────
 const FREE_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
+  "openrouter/free",
+  "google/gemini-2.0-flash-001:free",
+  "deepseek/deepseek-chat:free",
   "deepseek/deepseek-r1:free",
+  "meta-llama/llama-4-scout:free",
   "meta-llama/llama-3.3-70b-instruct:free",
-  "qwen/qwen-2.5-72b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
+  "qwen/qwen2.5-vl-72b-instruct:free",
+  "mistralai/mistral-small-3.1-24b-instruct:free",
 ];
 
 function extractJSON(raw) {
