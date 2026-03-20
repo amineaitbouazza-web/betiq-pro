@@ -1,17 +1,19 @@
 // api/picks.js — Vercel Serverless Function
-// Step 1: football-data.org  → REAL fixtures (free API)
-// Step 2: OpenRouter FREE models → AI picks best value bets (1 pick per match)
+// Step 1: football-data.org  → REAL fixtures
+// Step 2: OpenRouter FREE models → AI analysis (with robust fallback)
 
-// ── Free models on OpenRouter (no credits needed) ─────────────────────────
 const FREE_MODELS = [
   "stepfun/step-3.5-flash:free",
   "google/gemini-2.0-flash-001:free",
+  "google/gemini-2.0-flash-exp:free",
   "deepseek/deepseek-chat:free",
-  "deepseek/deepseek-r1:free",
   "meta-llama/llama-4-scout:free",
+  "meta-llama/llama-4-maverick:free",
   "meta-llama/llama-3.3-70b-instruct:free",
+  "deepseek/deepseek-r1:free",
   "qwen/qwen2.5-vl-72b-instruct:free",
   "mistralai/mistral-small-3.1-24b-instruct:free",
+  "nousresearch/deephermes-3-llama-3-8b-preview:free",
 ];
 
 function extractJSON(raw) {
@@ -34,7 +36,6 @@ function addDays(dateStr, days) {
   return d.toISOString().split("T")[0];
 }
 
-// Fetch real fixtures — auto-expands date window if too few matches
 async function fetchRealFixtures(date, fdKey) {
   const tryDates = [
     { from: date,             to: date },
@@ -66,9 +67,9 @@ async function fetchRealFixtures(date, fdKey) {
   return { matches: [], dateRange: date };
 }
 
-// Call OpenRouter — tries FREE models in order until one works
+// Try each free model — skip on provider error, move to next
 async function callOpenRouter(messages, systemPrompt, orKey) {
-  let lastError = null;
+  const errors = [];
 
   for (const model of FREE_MODELS) {
     try {
@@ -83,6 +84,7 @@ async function callOpenRouter(messages, systemPrompt, orKey) {
         body: JSON.stringify({
           model,
           max_tokens: 2000,
+          temperature: 0.3,
           messages: [
             { role: "system", content: systemPrompt },
             ...messages,
@@ -90,23 +92,36 @@ async function callOpenRouter(messages, systemPrompt, orKey) {
         }),
       });
 
+      const data = await res.json();
+
+      // Skip if provider error (model down/overloaded)
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        lastError = new Error(err?.error?.message || `OpenRouter ${model} error ${res.status}`);
-        continue; // try next model
+        const msg = data?.error?.message || `HTTP ${res.status}`;
+        errors.push(`${model}: ${msg}`);
+        continue;
       }
 
-      const data = await res.json();
+      // Skip if OpenRouter returned an error in the body
+      if (data?.error) {
+        errors.push(`${model}: ${data.error.message || "error"}`);
+        continue;
+      }
+
       const content = data.choices?.[0]?.message?.content || "";
-      if (content.trim().length > 10) return content; // success
-      lastError = new Error(`${model} returned empty response`);
+      if (content.trim().length > 10) {
+        console.log(`Success with model: ${model}`);
+        return content;
+      }
+
+      errors.push(`${model}: empty response`);
 
     } catch (e) {
-      lastError = e;
+      errors.push(`${model}: ${e.message}`);
     }
   }
 
-  throw lastError || new Error("All free models failed. Please try again.");
+  // All models failed — return detailed error
+  throw new Error(`All free models failed:\n${errors.slice(0,5).join("\n")}`);
 }
 
 export default async function handler(req, res) {
@@ -126,7 +141,7 @@ export default async function handler(req, res) {
   if (!date) return res.status(400).json({ error: "Missing date." });
 
   try {
-    // STEP 1: Real fixtures from football-data.org
+    // STEP 1: Real fixtures
     const { matches, dateRange } = await fetchRealFixtures(date, fdKey);
 
     if (matches.length === 0) {
@@ -140,7 +155,7 @@ export default async function handler(req, res) {
       .map((m, i) => `${i + 1}. ${m.home} vs ${m.away} | ${m.league} | ${m.date}${m.time ? " " + m.time : ""}`)
       .join("\n");
 
-    // STEP 2: Free AI picks — max 1 bet per match
+    // STEP 2: AI picks
     const maxPicks = Math.min(10, matches.length);
 
     const aiText = await callOpenRouter(
@@ -148,26 +163,27 @@ export default async function handler(req, res) {
 
 ${fixtureText}
 
-TOTAL: ${matches.length} matches
+Total: ${matches.length} matches available.
 
-Select ${maxPicks} BEST value bets. STRICT RULES:
-- ONE bet per match MAX — every pick must be a different match
-- Use EXACT team names from the list
-- Do NOT invent matches
+Select ${maxPicks} BEST value bets. Rules:
+- ONE bet per match MAX — each pick must be a different match
+- Use EXACT team names from the list above
+- Do NOT invent or add matches
 
-Return ONLY raw JSON array of ${maxPicks} picks sorted by odds DESC:
+Return ONLY a raw JSON array of ${maxPicks} picks sorted by odds DESCENDING:
 [{"home":"Exact Name","away":"Exact Name","league":"League","tip":"Home Win","conf":74,"odds":1.95,"homeForm":"WWDWL","awayForm":"DLWDL","factor":"5 word reason","reasoning":"Two sentences."}]
 
 tip: Home Win | Away Win | Draw | Both Teams Score | Over 2.5 Goals | Over 1.5 Goals | Home Win or Draw | Away Win or Draw
-conf: 60-85. odds: 1.25-3.50. Output ONLY the JSON array.` }],
-      "You are a sports betting analyst. Output ONLY a raw JSON array — no markdown, no text before or after. Never pick the same match twice.",
+conf: 60-85 integer. odds: 1.25-3.50.
+Output ONLY the JSON array, nothing else.` }],
+      "You are a sports betting analyst. Output ONLY a raw JSON array — no markdown, no explanation, no text before or after. Never pick the same match twice.",
       orKey
     );
 
     let parsed = extractJSON(aiText);
-    if (!parsed) return res.status(200).json({ picks: [], fixtureText, error: "AI failed to return valid picks. Please try again." });
+    if (!parsed) return res.status(200).json({ picks: [], fixtureText, error: "AI could not generate valid picks. Please try again." });
 
-    // Server-side deduplication — enforce 1 pick per match
+    // Deduplicate
     const seen = new Set();
     parsed = parsed.filter(p => {
       const key = `${(p.home||"").toLowerCase().trim()}-${(p.away||"").toLowerCase().trim()}`;
@@ -203,7 +219,7 @@ conf: 60-85. odds: 1.25-3.50. Output ONLY the JSON array.` }],
     });
 
   } catch (err) {
-    console.error("BETIQ API error:", err);
+    console.error("BETIQ API error:", err.message);
     return res.status(500).json({ picks: [], fixtureText: "", error: err.message });
   }
 }
