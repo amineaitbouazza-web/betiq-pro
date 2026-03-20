@@ -1,21 +1,15 @@
 // api/picks.js — Vercel Serverless Function
-// Step 1: football-data.org  → REAL fixtures (free, no credit card)
-// Step 2: OpenRouter         → AI picks the best value bets
+// Step 1: football-data.org  → REAL fixtures (free API)
+// Step 2: OpenRouter FREE models → AI picks best value bets (1 pick per match)
 
-// football-data.org free tier competition IDs
-const COMPETITION_MAP = {
-  "Premier League":        "PL",
-  "La Liga":               "PD",
-  "Bundesliga":            "BL1",
-  "Serie A":               "SA",
-  "Ligue 1":               "FL1",
-  "Champions League":      "CL",
-  "Europa League":         "EL",
-  "Eredivisie":            "DED",
-  "Primeira Liga":         "PPL",
-  "Championship":          "ELC",
-  "World Cup Qualifiers":  "WC",
-};
+// ── Free models on OpenRouter (no credits needed) ─────────────────────────
+const FREE_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "deepseek/deepseek-r1:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen-2.5-72b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+];
 
 function extractJSON(raw) {
   if (!raw) return null;
@@ -31,57 +25,85 @@ function extractJSON(raw) {
   return null;
 }
 
-// Fetch real fixtures from football-data.org for a given date
-async function fetchRealFixtures(date, fdKey) {
-  const url = `https://api.football-data.org/v4/matches?dateFrom=${date}&dateTo=${date}&status=SCHEDULED,TIMED`;
-  const res = await fetch(url, {
-    headers: { "X-Auth-Token": fdKey },
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.message || `football-data.org error ${res.status}`);
-  }
-
-  const data = await res.json();
-  const matches = data.matches || [];
-
-  return matches.map(m => ({
-    home:    m.homeTeam?.name || "?",
-    away:    m.awayTeam?.name || "?",
-    league:  m.competition?.name || "Football",
-    time:    m.utcDate ? new Date(m.utcDate).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) : "",
-    status:  m.status,
-  })).filter(m => m.home !== "?" && m.away !== "?");
+function addDays(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
 }
 
-// Call OpenRouter (OpenAI-compatible)
-async function callOpenRouter(messages, systemPrompt, orKey) {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${orKey}`,
-      "HTTP-Referer": "https://betiqpro.app",
-      "X-Title": "BETIQ PRO",
-    },
-    body: JSON.stringify({
-      model: "anthropic/claude-sonnet-4-5",
-      max_tokens: 2000,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
-    }),
-  });
+// Fetch real fixtures — auto-expands date window if too few matches
+async function fetchRealFixtures(date, fdKey) {
+  const tryDates = [
+    { from: date,             to: date },
+    { from: addDays(date,-1), to: addDays(date, 1) },
+    { from: addDays(date,-2), to: addDays(date, 2) },
+    { from: addDays(date,-3), to: addDays(date, 3) },
+  ];
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `OpenRouter error ${res.status}`);
+  for (const range of tryDates) {
+    const url = `https://api.football-data.org/v4/matches?dateFrom=${range.from}&dateTo=${range.to}&status=SCHEDULED,TIMED`;
+    const res = await fetch(url, { headers: { "X-Auth-Token": fdKey } });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.message || `football-data.org error ${res.status}`);
+    }
+    const data = await res.json();
+    const matches = (data.matches || [])
+      .map(m => ({
+        home:   m.homeTeam?.shortName || m.homeTeam?.name || "?",
+        away:   m.awayTeam?.shortName || m.awayTeam?.name || "?",
+        league: m.competition?.name || "Football",
+        date:   m.utcDate ? m.utcDate.split("T")[0] : date,
+        time:   m.utcDate ? new Date(m.utcDate).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) : "",
+      }))
+      .filter(m => m.home !== "?" && m.away !== "?");
+
+    if (matches.length >= 5) return { matches, dateRange: `${range.from} to ${range.to}` };
+  }
+  return { matches: [], dateRange: date };
+}
+
+// Call OpenRouter — tries FREE models in order until one works
+async function callOpenRouter(messages, systemPrompt, orKey) {
+  let lastError = null;
+
+  for (const model of FREE_MODELS) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${orKey}`,
+          "HTTP-Referer": "https://betiqpro.app",
+          "X-Title": "BETIQ PRO",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2000,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        lastError = new Error(err?.error?.message || `OpenRouter ${model} error ${res.status}`);
+        continue; // try next model
+      }
+
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      if (content.trim().length > 10) return content; // success
+      lastError = new Error(`${model} returned empty response`);
+
+    } catch (e) {
+      lastError = e;
+    }
   }
 
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+  throw lastError || new Error("All free models failed. Please try again.");
 }
 
 export default async function handler(req, res) {
@@ -101,43 +123,55 @@ export default async function handler(req, res) {
   if (!date) return res.status(400).json({ error: "Missing date." });
 
   try {
-    // ── STEP 1: Fetch REAL fixtures from football-data.org ────────────────
-    const fixtures = await fetchRealFixtures(date, fdKey);
+    // STEP 1: Real fixtures from football-data.org
+    const { matches, dateRange } = await fetchRealFixtures(date, fdKey);
 
-    if (fixtures.length === 0) {
+    if (matches.length === 0) {
       return res.status(200).json({
-        picks: [],
-        fixtureText: "",
-        error: `No fixtures scheduled for ${date}. Try a different date — weekends usually have the most matches.`,
+        picks: [], fixtureText: "",
+        error: `No fixtures found around ${date}. Try a different date.`,
       });
     }
 
-    // Format for AI
-    const fixtureText = fixtures
-      .map((f, i) => `${i + 1}. ${f.home} vs ${f.away} | ${f.league}${f.time ? " | " + f.time : ""}`)
+    const fixtureText = matches
+      .map((m, i) => `${i + 1}. ${m.home} vs ${m.away} | ${m.league} | ${m.date}${m.time ? " " + m.time : ""}`)
       .join("\n");
 
-    // ── STEP 2: OpenRouter picks best value bets ──────────────────────────
+    // STEP 2: Free AI picks — max 1 bet per match
+    const maxPicks = Math.min(10, matches.length);
+
     const aiText = await callOpenRouter(
-      [{ role: "user", content: `These are REAL football matches scheduled for ${date} from football-data.org:
+      [{ role: "user", content: `REAL football matches from football-data.org (${dateRange}):
 
 ${fixtureText}
 
-You are an expert football betting analyst. Select the 10 BEST value bets from these real matches using your knowledge of current team form, standings, head-to-head records, and betting value.
+TOTAL: ${matches.length} matches
 
-Return ONLY a raw JSON array of exactly 10 picks sorted by odds DESCENDING:
-[{"home":"Exact Team Name","away":"Exact Team Name","league":"League","tip":"Home Win","conf":74,"odds":1.95,"homeForm":"WWDWL","awayForm":"DLWDL","factor":"5 word reason","reasoning":"Two sentences of analysis."}]
+Select ${maxPicks} BEST value bets. STRICT RULES:
+- ONE bet per match MAX — every pick must be a different match
+- Use EXACT team names from the list
+- Do NOT invent matches
+
+Return ONLY raw JSON array of ${maxPicks} picks sorted by odds DESC:
+[{"home":"Exact Name","away":"Exact Name","league":"League","tip":"Home Win","conf":74,"odds":1.95,"homeForm":"WWDWL","awayForm":"DLWDL","factor":"5 word reason","reasoning":"Two sentences."}]
 
 tip: Home Win | Away Win | Draw | Both Teams Score | Over 2.5 Goals | Over 1.5 Goals | Home Win or Draw | Away Win or Draw
-conf: 60-85 integer. odds: 1.25-3.50.
-Use EXACT team names from the fixture list above. Do NOT invent matches.
-Output ONLY the JSON array.` }],
-      "You are a sports betting analyst. Respond ONLY with a raw JSON array. No markdown, no text before or after — just the JSON.",
+conf: 60-85. odds: 1.25-3.50. Output ONLY the JSON array.` }],
+      "You are a sports betting analyst. Output ONLY a raw JSON array — no markdown, no text before or after. Never pick the same match twice.",
       orKey
     );
 
-    const parsed = extractJSON(aiText);
+    let parsed = extractJSON(aiText);
     if (!parsed) return res.status(200).json({ picks: [], fixtureText, error: "AI failed to return valid picks. Please try again." });
+
+    // Server-side deduplication — enforce 1 pick per match
+    const seen = new Set();
+    parsed = parsed.filter(p => {
+      const key = `${(p.home||"").toLowerCase().trim()}-${(p.away||"").toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     let picks = parsed.slice(0, 10).map((p, i) => ({
       id: i + 1,
@@ -157,11 +191,11 @@ Output ONLY the JSON array.` }],
       ? picks.sort((a, b) => b.odds - a.odds)
       : picks.sort((a, b) => b.conf - a.conf);
 
-    const fixtureLines = fixtureText.split("\n").slice(0, 8);
     return res.status(200).json({
       picks,
-      fixtureText: fixtureLines.join("\n"),
-      totalFixtures: fixtures.length,
+      fixtureText: fixtureText.split("\n").slice(0, 10).join("\n"),
+      totalFixtures: matches.length,
+      dateRange,
       error: null,
     });
 
