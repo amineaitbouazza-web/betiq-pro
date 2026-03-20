@@ -3,7 +3,7 @@
 
 const FREE_MODELS = [
   "google/gemini-2.0-flash-001:free",
-  "stepfun/step-3.5-flash:free",
+  "openrouter/free",
   "nvidia/nemotron-3-super-120b-a12b:free",
   "arcee-ai/trinity-large-preview:free",
   "z-ai/glm-4.5-air:free",
