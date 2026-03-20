@@ -4,7 +4,7 @@
 
 // ── Free models on OpenRouter (no credits needed) ─────────────────────────
 const FREE_MODELS = [
-  "openrouter/free",
+  "stepfun/step-3.5-flash:free",
   "google/gemini-2.0-flash-001:free",
   "deepseek/deepseek-chat:free",
   "deepseek/deepseek-r1:free",
