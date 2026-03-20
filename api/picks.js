@@ -4,10 +4,19 @@
 const FREE_MODELS = [
   "google/gemini-2.0-flash-001:free",
   "stepfun/step-3.5-flash:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "arcee-ai/trinity-large-preview:free",
+  "z-ai/glm-4.5-air:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "arcee-ai/trinity-mini:free",
+  "nvidia/nemotron-nano-12b-v2-vl:free",
+  "nvidia/nemotron-nano-9b-v2:free",
+  "stepfun/step-3.5-flash:free",
   "google/gemini-2.0-flash-exp:free",
   "deepseek/deepseek-chat:free",
   "meta-llama/llama-4-scout:free",
   "meta-llama/llama-3.3-70b-instruct:free",
+  
 ];
 
 function extractJSON(raw) {
